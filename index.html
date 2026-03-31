@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fichaje GPS</title>
+  <script src="https://res.cdn.office.net/teams-js/2.19.0/js/MicrosoftTeams.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .card { background: white; border-radius: 12px; padding: 32px; width: 340px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); text-align: center; }
+    .logo { font-size: 48px; margin-bottom: 12px; }
+    h1 { font-size: 20px; color: #1a1a2e; margin-bottom: 4px; }
+    .usuario { font-size: 14px; color: #666; margin-bottom: 24px; }
+    .ubicacion { background: #f0f4ff; border-radius: 8px; padding: 12px; margin-bottom: 24px; font-size: 13px; color: #444; }
+    .btn { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .btn-entrada { background: #0078d4; color: white; margin-bottom: 10px; }
+    .btn-salida  { background: #107c10; color: white; margin-bottom: 10px; }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .historial { margin-top: 24px; text-align: left; }
+    .historial h3 { font-size: 13px; color: #888; margin-bottom: 8px; text-transform: uppercase; }
+    .registro { background: #f9f9f9; border-radius: 6px; padding: 10px; margin-bottom: 6px; font-size: 13px; }
+    .registro .hora { font-weight: 600; color: #1a1a2e; }
+    .registro .tipo-entrada { color: #0078d4; }
+    .registro .tipo-salida  { color: #107c10; }
+    .estado { padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; }
+    .estado.ok  { background: #dff0d8; color: #2d6a2d; }
+    .estado.err { background: #fde8e8; color: #a30000; }
+    .estado.info { background: #e8f0fe; color: #1a56db; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">🏛️</div>
+  <h1>Fichaje GPS</h1>
+  <div class="usuario" id="nombreUsuario">Cargando...</div>
+
+  <div class="ubicacion" id="ubicacion">📍 Obteniendo ubicación...</div>
+
+  <div id="estado"></div>
+
+  <button class="btn btn-entrada" id="btnEntrada" onclick="fichar('entrada')" disabled>
+    ✅ Fichar Entrada
+  </button>
+  <button class="btn btn-salida" id="btnSalida" onclick="fichar('salida')" disabled>
+    🔴 Fichar Salida
+  </button>
+
+  <div class="historial">
+    <h3>Últimos fichajes</h3>
+    <div id="listaFichajes">—</div>
+  </div>
+</div>
+
+<script>
+  let usuarioNombre = '';
+  let usuarioEmail = '';
+  let latActual = null;
+  let lngActual = null;
+
+  // Inicializar Teams SDK
+  microsoftTeams.app.initialize().then(() => {
+    microsoftTeams.app.getContext().then(ctx => {
+      usuarioNombre = ctx.user?.displayName || 'Usuario';
+      usuarioEmail  = ctx.user?.loginHint   || '';
+      document.getElementById('nombreUsuario').textContent = usuarioNombre;
+      obtenerUbicacion();
+      cargarHistorial();
+    });
+  }).catch(() => {
+    // Fuera de Teams (test en navegador)
+    usuarioNombre = 'Usuario Test';
+    usuarioEmail  = 'test@universitatpopular.com';
+    document.getElementById('nombreUsuario').textContent = usuarioNombre + ' (modo test)';
+    obtenerUbicacion();
+    cargarHistorial();
+  });
+
+  function obtenerUbicacion() {
+    if (!navigator.geolocation) {
+      document.getElementById('ubicacion').textContent = '⚠️ GPS no disponible en este dispositivo';
+      activarBotones();
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(pos => {
+      latActual = pos.coords.latitude.toFixed(6);
+      lngActual = pos.coords.longitude.toFixed(6);
+      document.getElementById('ubicacion').innerHTML =
+        `📍 Ubicación obtenida ✅<br><small style="color:#888">${latActual}, ${lngActual}</small>`;
+      activarBotones();
+    }, err => {
+      document.getElementById('ubicacion').textContent = '⚠️ GPS denegado — se fichará sin ubicación';
+      activarBotones();
+    });
+  }
+
+  function activarBotones() {
+    document.getElementById('btnEntrada').disabled = false;
+    document.getElementById('btnSalida').disabled  = false;
+  }
+
+  function fichar(tipo) {
+    document.getElementById('btnEntrada').disabled = true;
+    document.getElementById('btnSalida').disabled  = true;
+    mostrarEstado('info', '⏳ Registrando fichaje...');
+
+    const fichaje = {
+      usuario: usuarioEmail,
+      nombre:  usuarioNombre,
+      tipo:    tipo,
+      lat:     latActual,
+      lng:     lngActual,
+      hora:    new Date().toISOString()
+    };
+
+    // Guardar en localStorage como demo
+    const historial = JSON.parse(localStorage.getItem('fichajes') || '[]');
+    historial.unshift(fichaje);
+    localStorage.setItem('fichajes', JSON.stringify(historial.slice(0, 20)));
+
+    setTimeout(() => {
+      const hora = new Date().toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+      const emoji = tipo === 'entrada' ? '✅' : '🔴';
+      mostrarEstado('ok', `${emoji} ${tipo.charAt(0).toUpperCase()+tipo.slice(1)} registrada a las ${hora}`);
+      activarBotones();
+      cargarHistorial();
+    }, 800);
+  }
+
+  function cargarHistorial() {
+    const historial = JSON.parse(localStorage.getItem('fichajes') || '[]');
+    const lista = document.getElementById('listaFichajes');
+    if (!historial.length) { lista.innerHTML = '<span style="color:#aaa;font-size:13px">Sin fichajes aún</span>'; return; }
+    lista.innerHTML = historial.slice(0, 5).map(f => {
+      const hora = new Date(f.hora).toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+      const fecha = new Date(f.hora).toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'});
+      const clase = f.tipo === 'entrada' ? 'tipo-entrada' : 'tipo-salida';
+      const emoji = f.tipo === 'entrada' ? '✅' : '🔴';
+      return `<div class="registro"><span class="hora">${fecha} ${hora}</span> — <span class="${clase}">${emoji} ${f.tipo}</span></div>`;
+    }).join('');
+  }
+
+  function mostrarEstado(tipo, msg) {
+    const el = document.getElementById('estado');
+    el.className = `estado ${tipo}`;
+    el.textContent = msg;
+  }
+</script>
+</body>
+</html>
