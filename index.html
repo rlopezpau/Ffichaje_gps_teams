@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fichaje GPS</title>
   <script src="https://res.cdn.office.net/teams-js/2.19.0/js/MicrosoftTeams.min.js"></script>
-  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -58,17 +58,6 @@
   let lngActual     = null;
   let graphToken    = null;
 
-  const msalConfig = {
-    auth: {
-      clientId: CLIENT_ID,
-      authority: `https://login.microsoftonline.com/${TENANT_ID}`,
-      redirectUri: 'https://rlopezpau.github.io/Ffichaje_gps_teams/'
-    },
-    cache: { cacheLocation: 'sessionStorage' }
-  };
-
-  const msalInstance = new msal.PublicClientApplication(msalConfig);
-
   async function init() {
     try {
       await microsoftTeams.app.initialize();
@@ -76,33 +65,19 @@
       usuarioNombre = ctx.user?.displayName || 'Usuario';
       usuarioEmail  = ctx.user?.loginHint   || '';
       document.getElementById('nombreUsuario').textContent = usuarioNombre;
+
+      // Obtener token SSO nativo de Teams
+      try {
+        graphToken = await microsoftTeams.authentication.getAuthToken();
+      } catch(e) {
+        mostrarEstado('err', '⚠️ Error SSO: ' + e.message);
+      }
     } catch(e) {
+      // Fuera de Teams — modo test
       usuarioNombre = 'Usuario Test';
       usuarioEmail  = 'test@universitatpopular.com';
       document.getElementById('nombreUsuario').textContent = usuarioNombre + ' (test)';
-    }
-
-    // Obtener token Graph
-    try {
-      await msalInstance.initialize();
-      const accounts = msalInstance.getAllAccounts();
-      let tokenResp;
-      if (accounts.length > 0) {
-        tokenResp = await msalInstance.acquireTokenSilent({
-          scopes: ['Files.ReadWrite', 'User.Read'],
-          account: accounts[0]
-        });
-      } else {
-        tokenResp = await msalInstance.acquireTokenPopup({
-          scopes: ['Files.ReadWrite', 'User.Read']
-        });
-        usuarioNombre = tokenResp.account.name || usuarioNombre;
-        usuarioEmail  = tokenResp.account.username || usuarioEmail;
-        document.getElementById('nombreUsuario').textContent = usuarioNombre;
-      }
-      graphToken = tokenResp.accessToken;
-    } catch(e) {
-      mostrarEstado('err', '⚠️ Error de autenticación: ' + e.message);
+      mostrarEstado('info', 'ℹ️ Modo test — abre desde Teams para fichar');
     }
 
     obtenerUbicacion();
