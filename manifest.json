@@ -1,21 +1,21 @@
 {
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
   "manifestVersion": "1.17",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "id": "8ddf3703-b6e7-4795-805b-aac0794b2219",
-  "packageName": "com.universitatpopular.fichaje",
   "developer": {
-    "name": "Universidad Popular del Ayuntamiento de Valencia",
+    "name": "Universitat Popular Valencia",
     "websiteUrl": "https://rlopezpau.github.io/Ffichaje_gps_teams/",
     "privacyUrl": "https://rlopezpau.github.io/Ffichaje_gps_teams/",
     "termsOfUseUrl": "https://rlopezpau.github.io/Ffichaje_gps_teams/"
   },
   "name": {
     "short": "Fichaje GPS",
-    "full": "Sistema de Fichaje con GPS"
+    "full": "Fichaje GPS Universitat"
   },
   "description": {
-    "short": "Registra tu entrada y salida con geolocalización",
-    "full": "Sistema de fichaje para empleados con registro de geolocalización"
+    "short": "Fichaje con geolocalización",
+    "full": "Sistema de fichaje para empleados con geolocalización"
   },
   "icons": {
     "color": "icon-color.png",
@@ -31,6 +31,18 @@
       "scopes": ["personal"]
     }
   ],
-  "devicePermissions": ["geolocation"],
-  "validDomains": ["rlopezpau.github.io"]
+  "webApplicationInfo": {
+    "id": "8ddf3703-b6e7-4795-805b-aac0794b2219",
+    "resource": "api://8ddf3703-b6e7-4795-805b-aac0794b2219"
+  },
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "devicePermissions": [
+    "geolocation"
+  ],
+  "validDomains": [
+    "rlopezpau.github.io"
+  ]
 }
