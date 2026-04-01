@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fichaje GPS</title>
   <script src="https://res.cdn.office.net/teams-js/2.19.0/js/MicrosoftTeams.min.js"></script>
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -25,8 +26,8 @@
     .registro .tipo-entrada { color: #0078d4; }
     .registro .tipo-salida  { color: #107c10; }
     .estado { padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; }
-    .estado.ok  { background: #dff0d8; color: #2d6a2d; }
-    .estado.err { background: #fde8e8; color: #a30000; }
+    .estado.ok   { background: #dff0d8; color: #2d6a2d; }
+    .estado.err  { background: #fde8e8; color: #a30000; }
     .estado.info { background: #e8f0fe; color: #1a56db; }
   </style>
 </head>
@@ -35,18 +36,10 @@
   <div class="logo">🏛️</div>
   <h1>Fichaje GPS</h1>
   <div class="usuario" id="nombreUsuario">Cargando...</div>
-
   <div class="ubicacion" id="ubicacion">📍 Obteniendo ubicación...</div>
-
   <div id="estado"></div>
-
-  <button class="btn btn-entrada" id="btnEntrada" onclick="fichar('entrada')" disabled>
-    ✅ Fichar Entrada
-  </button>
-  <button class="btn btn-salida" id="btnSalida" onclick="fichar('salida')" disabled>
-    🔴 Fichar Salida
-  </button>
-
+  <button class="btn btn-entrada" id="btnEntrada" onclick="fichar('entrada')" disabled>✅ Fichar Entrada</button>
+  <button class="btn btn-salida"  id="btnSalida"  onclick="fichar('salida')"  disabled>🔴 Fichar Salida</button>
   <div class="historial">
     <h3>Últimos fichajes</h3>
     <div id="listaFichajes">—</div>
@@ -54,34 +47,72 @@
 </div>
 
 <script>
-  let usuarioNombre = '';
-  let usuarioEmail = '';
-  let latActual = null;
-  let lngActual = null;
+  const CLIENT_ID  = '8ddf3703-b6e7-4795-805b-aac0794b2219';
+  const TENANT_ID  = '855565e3-90eb-4010-b0a8-d05b62919714';
+  const FILE_ID    = 'C45FFF5A-F6C6-4AC1-B940-76CDB1280650';
+  const TABLE_NAME = 'Fichajes';
 
-  // Inicializar Teams SDK
-  microsoftTeams.app.initialize().then(() => {
-    microsoftTeams.app.getContext().then(ctx => {
+  let usuarioNombre = '';
+  let usuarioEmail  = '';
+  let latActual     = null;
+  let lngActual     = null;
+  let graphToken    = null;
+
+  const msalConfig = {
+    auth: {
+      clientId: CLIENT_ID,
+      authority: `https://login.microsoftonline.com/${TENANT_ID}`,
+      redirectUri: 'https://rlopezpau.github.io/Ffichaje_gps_teams/'
+    },
+    cache: { cacheLocation: 'sessionStorage' }
+  };
+
+  const msalInstance = new msal.PublicClientApplication(msalConfig);
+
+  async function init() {
+    try {
+      await microsoftTeams.app.initialize();
+      const ctx = await microsoftTeams.app.getContext();
       usuarioNombre = ctx.user?.displayName || 'Usuario';
       usuarioEmail  = ctx.user?.loginHint   || '';
       document.getElementById('nombreUsuario').textContent = usuarioNombre;
-      obtenerUbicacion();
-      cargarHistorial();
-    });
-  }).catch(() => {
-    // Fuera de Teams (test en navegador)
-    usuarioNombre = 'Usuario Test';
-    usuarioEmail  = 'test@universitatpopular.com';
-    document.getElementById('nombreUsuario').textContent = usuarioNombre + ' (modo test)';
+    } catch(e) {
+      usuarioNombre = 'Usuario Test';
+      usuarioEmail  = 'test@universitatpopular.com';
+      document.getElementById('nombreUsuario').textContent = usuarioNombre + ' (test)';
+    }
+
+    // Obtener token Graph
+    try {
+      await msalInstance.initialize();
+      const accounts = msalInstance.getAllAccounts();
+      let tokenResp;
+      if (accounts.length > 0) {
+        tokenResp = await msalInstance.acquireTokenSilent({
+          scopes: ['Files.ReadWrite', 'User.Read'],
+          account: accounts[0]
+        });
+      } else {
+        tokenResp = await msalInstance.acquireTokenPopup({
+          scopes: ['Files.ReadWrite', 'User.Read']
+        });
+        usuarioNombre = tokenResp.account.name || usuarioNombre;
+        usuarioEmail  = tokenResp.account.username || usuarioEmail;
+        document.getElementById('nombreUsuario').textContent = usuarioNombre;
+      }
+      graphToken = tokenResp.accessToken;
+    } catch(e) {
+      mostrarEstado('err', '⚠️ Error de autenticación: ' + e.message);
+    }
+
     obtenerUbicacion();
     cargarHistorial();
-  });
+  }
 
   function obtenerUbicacion() {
     if (!navigator.geolocation) {
-      document.getElementById('ubicacion').textContent = '⚠️ GPS no disponible en este dispositivo';
-      activarBotones();
-      return;
+      document.getElementById('ubicacion').textContent = '⚠️ GPS no disponible';
+      activarBotones(); return;
     }
     navigator.geolocation.getCurrentPosition(pos => {
       latActual = pos.coords.latitude.toFixed(6);
@@ -89,8 +120,8 @@
       document.getElementById('ubicacion').innerHTML =
         `📍 Ubicación obtenida ✅<br><small style="color:#888">${latActual}, ${lngActual}</small>`;
       activarBotones();
-    }, err => {
-      document.getElementById('ubicacion').textContent = '⚠️ GPS denegado — se fichará sin ubicación';
+    }, () => {
+      document.getElementById('ubicacion').textContent = '⚠️ GPS denegado';
       activarBotones();
     });
   }
@@ -100,7 +131,7 @@
     document.getElementById('btnSalida').disabled  = false;
   }
 
-  function fichar(tipo) {async function fichar(tipo) {
+  async function fichar(tipo) {
     document.getElementById('btnEntrada').disabled = true;
     document.getElementById('btnSalida').disabled  = true;
     mostrarEstado('info', '⏳ Registrando fichaje...');
@@ -109,49 +140,43 @@
     const fecha = ahora.toISOString().split('T')[0];
     const hora  = ahora.toTimeString().split(' ')[0];
 
-    const fichaje = {
-      nombre: usuarioNombre,
-      email:  usuarioEmail,
-      tipo:   tipo,
-      fecha:  fecha,
-      hora:   hora,
-      lat:    latActual || '',
-      lng:    lngActual || ''
+    const fila = {
+      Fecha:    fecha,
+      Nombre:   usuarioNombre,
+      Email:    usuarioEmail,
+      Tipo:     tipo,
+      Hora:     hora,
+      Latitud:  latActual  || '',
+      Longitud: lngActual  || ''
     };
 
     try {
-      await fetch('https://default855565e390eb4010b0a8d05b629197.14.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/7e0d969268b344f99be0285f6360c0b3/triggers/manual/paths/invoke?api-version=1', {
+      const url = `https://graph.microsoft.com/v1.0/me/drive/items/${FILE_ID}/workbook/tables/${TABLE_NAME}/rows`;
+      const resp = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fichaje)
+        headers: {
+          'Authorization': `Bearer ${graphToken}`,
+          'Content-Type':  'application/json'
+        },
+        body: JSON.stringify({ values: [[fila.Fecha, fila.Nombre, fila.Email, fila.Tipo, fila.Hora, fila.Latitud, fila.Longitud]] })
       });
-      mostrarEstado('ok', `✅ ${tipo.charAt(0).toUpperCase()+tipo.slice(1)} registrada a las ${hora}`);
+
+      if (resp.ok) {
+        mostrarEstado('ok', `✅ ${tipo.charAt(0).toUpperCase()+tipo.slice(1)} registrada a las ${hora}`);
+        // Guardar en localStorage como respaldo
+        const historial = JSON.parse(localStorage.getItem('fichajes') || '[]');
+        historial.unshift({ ...fila, hora });
+        localStorage.setItem('fichajes', JSON.stringify(historial.slice(0, 20)));
+        cargarHistorial();
+      } else {
+        const err = await resp.json();
+        mostrarEstado('err', '⚠️ Error: ' + (err.error?.message || resp.status));
+      }
     } catch(e) {
-      mostrarEstado('err', '⚠️ Error al registrar. Inténtalo de nuevo.');
+      mostrarEstado('err', '⚠️ Error de conexión');
     }
 
-    // Guardar también en localStorage como respaldo
-    const historial = JSON.parse(localStorage.getItem('fichajes') || '[]');
-    historial.unshift(fichaje);
-    localStorage.setItem('fichajes', JSON.stringify(historial.slice(0, 20)));
-
     activarBotones();
-    cargarHistorial();
-  }
-    };
-
-    // Guardar en localStorage como demo
-    const historial = JSON.parse(localStorage.getItem('fichajes') || '[]');
-    historial.unshift(fichaje);
-    localStorage.setItem('fichajes', JSON.stringify(historial.slice(0, 20)));
-
-    setTimeout(() => {
-      const hora = new Date().toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
-      const emoji = tipo === 'entrada' ? '✅' : '🔴';
-      mostrarEstado('ok', `${emoji} ${tipo.charAt(0).toUpperCase()+tipo.slice(1)} registrada a las ${hora}`);
-      activarBotones();
-      cargarHistorial();
-    }, 800);
   }
 
   function cargarHistorial() {
@@ -159,11 +184,9 @@
     const lista = document.getElementById('listaFichajes');
     if (!historial.length) { lista.innerHTML = '<span style="color:#aaa;font-size:13px">Sin fichajes aún</span>'; return; }
     lista.innerHTML = historial.slice(0, 5).map(f => {
-      const hora = new Date(f.hora).toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
-      const fecha = new Date(f.hora).toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'});
-      const clase = f.tipo === 'entrada' ? 'tipo-entrada' : 'tipo-salida';
-      const emoji = f.tipo === 'entrada' ? '✅' : '🔴';
-      return `<div class="registro"><span class="hora">${fecha} ${hora}</span> — <span class="${clase}">${emoji} ${f.tipo}</span></div>`;
+      const clase = f.Tipo === 'entrada' ? 'tipo-entrada' : 'tipo-salida';
+      const emoji = f.Tipo === 'entrada' ? '✅' : '🔴';
+      return `<div class="registro"><span class="hora">${f.Fecha} ${f.Hora}</span> — <span class="${clase}">${emoji} ${f.Tipo}</span></div>`;
     }).join('');
   }
 
@@ -172,6 +195,8 @@
     el.className = `estado ${tipo}`;
     el.textContent = msg;
   }
+
+  init();
 </script>
 </body>
 </html>
