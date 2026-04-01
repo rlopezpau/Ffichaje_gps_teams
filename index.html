@@ -1,48 +1,177 @@
-{
-  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
-  "manifestVersion": "1.17",
-  "version": "1.0.1",
-  "id": "8ddf3703-b6e7-4795-805b-aac0794b2219",
-  "developer": {
-    "name": "Universitat Popular Valencia",
-    "websiteUrl": "https://rlopezpau.github.io/Ffichaje_gps_teams/",
-    "privacyUrl": "https://rlopezpau.github.io/Ffichaje_gps_teams/",
-    "termsOfUseUrl": "https://rlopezpau.github.io/Ffichaje_gps_teams/"
-  },
-  "name": {
-    "short": "Fichaje GPS",
-    "full": "Fichaje GPS Universitat"
-  },
-  "description": {
-    "short": "Fichaje con geolocalización",
-    "full": "Sistema de fichaje para empleados con geolocalización"
-  },
-  "icons": {
-    "color": "icon-color.png",
-    "outline": "icon-outline.png"
-  },
-  "accentColor": "#0078d4",
-  "staticTabs": [
-    {
-      "entityId": "fichaje",
-      "name": "Fichar",
-      "contentUrl": "https://rlopezpau.github.io/Ffichaje_gps_teams/",
-      "websiteUrl": "https://rlopezpau.github.io/Ffichaje_gps_teams/",
-      "scopes": ["personal"]
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fichaje GPS</title>
+  <script src="https://res.cdn.office.net/teams-js/2.19.0/js/MicrosoftTeams.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .card { background: white; border-radius: 12px; padding: 32px; width: 340px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); text-align: center; }
+    .logo { font-size: 48px; margin-bottom: 12px; }
+    h1 { font-size: 20px; color: #1a1a2e; margin-bottom: 4px; }
+    .usuario { font-size: 14px; color: #666; margin-bottom: 24px; }
+    .ubicacion { background: #f0f4ff; border-radius: 8px; padding: 12px; margin-bottom: 24px; font-size: 13px; color: #444; }
+    .btn { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .btn-entrada { background: #0078d4; color: white; margin-bottom: 10px; }
+    .btn-salida  { background: #107c10; color: white; margin-bottom: 10px; }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .historial { margin-top: 24px; text-align: left; }
+    .historial h3 { font-size: 13px; color: #888; margin-bottom: 8px; text-transform: uppercase; }
+    .registro { background: #f9f9f9; border-radius: 6px; padding: 10px; margin-bottom: 6px; font-size: 13px; }
+    .registro .hora { font-weight: 600; color: #1a1a2e; }
+    .registro .tipo-entrada { color: #0078d4; }
+    .registro .tipo-salida  { color: #107c10; }
+    .estado { padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; }
+    .estado.ok   { background: #dff0d8; color: #2d6a2d; }
+    .estado.err  { background: #fde8e8; color: #a30000; }
+    .estado.info { background: #e8f0fe; color: #1a56db; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">🏛️</div>
+  <h1>Fichaje GPS</h1>
+  <div class="usuario" id="nombreUsuario">Cargando...</div>
+  <div class="ubicacion" id="ubicacion">📍 Obteniendo ubicación...</div>
+  <div id="estado"></div>
+  <button class="btn btn-entrada" id="btnEntrada" onclick="fichar('entrada')" disabled>✅ Fichar Entrada</button>
+  <button class="btn btn-salida"  id="btnSalida"  onclick="fichar('salida')"  disabled>🔴 Fichar Salida</button>
+  <div class="historial">
+    <h3>Últimos fichajes</h3>
+    <div id="listaFichajes">—</div>
+  </div>
+</div>
+
+<script>
+  const CLIENT_ID  = '8ddf3703-b6e7-4795-805b-aac0794b2219';
+  const TENANT_ID  = '855565e3-90eb-4010-b0a8-d05b62919714';
+  const FILE_ID    = 'C45FFF5A-F6C6-4AC1-B940-76CDB1280650';
+  const TABLE_NAME = 'Fichajes';
+
+  let usuarioNombre = '';
+  let usuarioEmail  = '';
+  let latActual     = null;
+  let lngActual     = null;
+  let graphToken    = null;
+
+  async function init() {
+    try {
+      await microsoftTeams.app.initialize();
+      const ctx = await microsoftTeams.app.getContext();
+      usuarioNombre = ctx.user?.displayName || 'Usuario';
+      usuarioEmail  = ctx.user?.loginHint   || '';
+      document.getElementById('nombreUsuario').textContent = usuarioNombre;
+
+      // Obtener token SSO nativo de Teams
+      try {
+        graphToken = await microsoftTeams.authentication.getAuthToken();
+      } catch(e) {
+        mostrarEstado('err', '⚠️ Error SSO: ' + e.message);
+      }
+    } catch(e) {
+      // Fuera de Teams — modo test
+      usuarioNombre = 'Usuario Test';
+      usuarioEmail  = 'test@universitatpopular.com';
+      document.getElementById('nombreUsuario').textContent = usuarioNombre + ' (test)';
+      mostrarEstado('info', 'ℹ️ Modo test — abre desde Teams para fichar');
     }
-  ],
-  "webApplicationInfo": {
-    "id": "8ddf3703-b6e7-4795-805b-aac0794b2219",
-    "resource": "api://8ddf3703-b6e7-4795-805b-aac0794b2219"
-  },
-  "permissions": [
-    "identity",
-    "messageTeamMembers"
-  ],
-  "devicePermissions": [
-    "geolocation"
-  ],
-  "validDomains": [
-    "rlopezpau.github.io"
-  ]
-}
+
+    obtenerUbicacion();
+    cargarHistorial();
+  }
+
+  function obtenerUbicacion() {
+    if (!navigator.geolocation) {
+      document.getElementById('ubicacion').textContent = '⚠️ GPS no disponible';
+      activarBotones(); return;
+    }
+    navigator.geolocation.getCurrentPosition(pos => {
+      latActual = pos.coords.latitude.toFixed(6);
+      lngActual = pos.coords.longitude.toFixed(6);
+      document.getElementById('ubicacion').innerHTML =
+        `📍 Ubicación obtenida ✅<br><small style="color:#888">${latActual}, ${lngActual}</small>`;
+      activarBotones();
+    }, () => {
+      document.getElementById('ubicacion').textContent = '⚠️ GPS denegado';
+      activarBotones();
+    });
+  }
+
+  function activarBotones() {
+    document.getElementById('btnEntrada').disabled = false;
+    document.getElementById('btnSalida').disabled  = false;
+  }
+
+  async function fichar(tipo) {
+    document.getElementById('btnEntrada').disabled = true;
+    document.getElementById('btnSalida').disabled  = true;
+    mostrarEstado('info', '⏳ Registrando fichaje...');
+
+    const ahora = new Date();
+    const fecha = ahora.toISOString().split('T')[0];
+    const hora  = ahora.toTimeString().split(' ')[0];
+
+    const fila = {
+      Fecha:    fecha,
+      Nombre:   usuarioNombre,
+      Email:    usuarioEmail,
+      Tipo:     tipo,
+      Hora:     hora,
+      Latitud:  latActual  || '',
+      Longitud: lngActual  || ''
+    };
+
+    try {
+      const url = `https://graph.microsoft.com/v1.0/me/drive/items/${FILE_ID}/workbook/tables/${TABLE_NAME}/rows`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${graphToken}`,
+          'Content-Type':  'application/json'
+        },
+        body: JSON.stringify({ values: [[fila.Fecha, fila.Nombre, fila.Email, fila.Tipo, fila.Hora, fila.Latitud, fila.Longitud]] })
+      });
+
+      if (resp.ok) {
+        mostrarEstado('ok', `✅ ${tipo.charAt(0).toUpperCase()+tipo.slice(1)} registrada a las ${hora}`);
+        // Guardar en localStorage como respaldo
+        const historial = JSON.parse(localStorage.getItem('fichajes') || '[]');
+        historial.unshift({ ...fila, hora });
+        localStorage.setItem('fichajes', JSON.stringify(historial.slice(0, 20)));
+        cargarHistorial();
+      } else {
+        const err = await resp.json();
+        mostrarEstado('err', '⚠️ Error: ' + (err.error?.message || resp.status));
+      }
+    } catch(e) {
+      mostrarEstado('err', '⚠️ Error de conexión');
+    }
+
+    activarBotones();
+  }
+
+  function cargarHistorial() {
+    const historial = JSON.parse(localStorage.getItem('fichajes') || '[]');
+    const lista = document.getElementById('listaFichajes');
+    if (!historial.length) { lista.innerHTML = '<span style="color:#aaa;font-size:13px">Sin fichajes aún</span>'; return; }
+    lista.innerHTML = historial.slice(0, 5).map(f => {
+      const clase = f.Tipo === 'entrada' ? 'tipo-entrada' : 'tipo-salida';
+      const emoji = f.Tipo === 'entrada' ? '✅' : '🔴';
+      return `<div class="registro"><span class="hora">${f.Fecha} ${f.Hora}</span> — <span class="${clase}">${emoji} ${f.Tipo}</span></div>`;
+    }).join('');
+  }
+
+  function mostrarEstado(tipo, msg) {
+    const el = document.getElementById('estado');
+    el.className = `estado ${tipo}`;
+    el.textContent = msg;
+  }
+
+  init();
+</script>
+</body>
+</html>
