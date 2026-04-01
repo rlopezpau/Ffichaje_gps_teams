@@ -100,18 +100,44 @@
     document.getElementById('btnSalida').disabled  = false;
   }
 
-  function fichar(tipo) {
+  function fichar(tipo) {async function fichar(tipo) {
     document.getElementById('btnEntrada').disabled = true;
     document.getElementById('btnSalida').disabled  = true;
     mostrarEstado('info', '⏳ Registrando fichaje...');
 
+    const ahora = new Date();
+    const fecha = ahora.toISOString().split('T')[0];
+    const hora  = ahora.toTimeString().split(' ')[0];
+
     const fichaje = {
-      usuario: usuarioEmail,
-      nombre:  usuarioNombre,
-      tipo:    tipo,
-      lat:     latActual,
-      lng:     lngActual,
-      hora:    new Date().toISOString()
+      nombre: usuarioNombre,
+      email:  usuarioEmail,
+      tipo:   tipo,
+      fecha:  fecha,
+      hora:   hora,
+      lat:    latActual || '',
+      lng:    lngActual || ''
+    };
+
+    try {
+      await fetch('https://default855565e390eb4010b0a8d05b629197.14.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/7e0d969268b344f99be0285f6360c0b3/triggers/manual/paths/invoke?api-version=1', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fichaje)
+      });
+      mostrarEstado('ok', `✅ ${tipo.charAt(0).toUpperCase()+tipo.slice(1)} registrada a las ${hora}`);
+    } catch(e) {
+      mostrarEstado('err', '⚠️ Error al registrar. Inténtalo de nuevo.');
+    }
+
+    // Guardar también en localStorage como respaldo
+    const historial = JSON.parse(localStorage.getItem('fichajes') || '[]');
+    historial.unshift(fichaje);
+    localStorage.setItem('fichajes', JSON.stringify(historial.slice(0, 20)));
+
+    activarBotones();
+    cargarHistorial();
+  }
     };
 
     // Guardar en localStorage como demo
